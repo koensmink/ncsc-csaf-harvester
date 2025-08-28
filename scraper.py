@@ -9,12 +9,13 @@ from zoneinfo import ZoneInfo  # Python 3.9+
 FEED_URL = "https://advisories.ncsc.nl/rss/advisories"
 BASE_DIR = Path("output/daily")
 SEEN_FILE = Path("output/seen.json")
+LAST_RUN_FILE = Path("output/last_run.json")
 TZ = ZoneInfo("Europe/Amsterdam")
 
 def load_seen():
     if SEEN_FILE.exists():
         return json.loads(SEEN_FILE.read_text(encoding="utf-8"))
-    return {}
+    return {}  # {advisory_id: "YYYY-MM-DD"}
 
 def save_seen(seen):
     SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -35,15 +36,15 @@ def advisory_id(entry):
 
 def parse_title(title: str):
     """
-    Voorbeeld titel:
-    'NCSC-2025-0271 [1.00] [M/H] Kwetsbaarheden verholpen in Arcserve Unified Data Protection'
+    Verwachte structuur van de titel:
+    NCSC-2025-0271 [1.00] [M/H] Kwetsbaarheden verholpen in ...
     """
     pattern = r"^(NCSC-\d{4}-\d{4})\s+(\[[0-9.]+\])\s+(\[[A-Z/]+\])\s+(.*)$"
     m = re.match(pattern, title)
     if m:
         return m.group(1), m.group(2), m.group(3), m.group(4)
     else:
-        # fallback: alles in description
+        # fallback: als het patroon niet klopt
         return "", "", "", title
 
 def main():
@@ -74,6 +75,15 @@ def main():
         f.close()
 
     save_seen(seen)
+
+    # info voor Telegram stap
+    last_run = {
+        "new_count": new_count,
+        "csv_path": str(out_file)
+    }
+    LAST_RUN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LAST_RUN_FILE.write_text(json.dumps(last_run, indent=2, ensure_ascii=False), encoding="utf-8")
+
     print(f"Wrote {new_count} new advisories to {out_file}" if new_count else "No new advisories today.")
 
 if __name__ == "__main__":
