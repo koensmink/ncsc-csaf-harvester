@@ -1,12 +1,16 @@
-name: NCSC Advisories Daily
+name: NCSC Advisories Frequent
 
 on:
   schedule:
-    - cron: "0 6 * * *"   # elke dag 06:00 UTC ≈ 08:00 NL (zomertijd)
+    - cron: "*/60 * * * *"   # elke 10 min (UTC)
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: ncsc-scraper
+  cancel-in-progress: true
 
 jobs:
   scrape:
@@ -31,5 +35,38 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add output/
-          git commit -m "Daily NCSC advisories" || echo "No changes to commit"
-          git push
+          git commit -m "NCSC advisories update [skip ci]" || echo "No changes to commit"
+          git push || true
+
+      - name: Read last_run.json
+        id: last
+        run: |
+          python - << 'PY'
+          import json
+          data = json.load(open('output/last_run.json', encoding='utf-8'))
+          print(f"new_count={data.get('new_count',0)}")
+          print(f"csv_path={data.get('csv_path','')}")
+          PY >> $GITHUB_OUTPUT
+
+      - name: Send Telegram message
+        if: steps.last.outputs.new_count != '0'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="NCSC update: ${{ steps.last.outputs.new_count }} nieuwe adviezen.\nCSV: ${{ steps.last.outputs.csv_path }}"
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="$MSG"
+
+      - name: Send Telegram CSV
+        if: steps.last.outputs.new_count != '0'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          FILE="${{ steps.last.outputs.csv_path }}"
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+            -F chat_id="${CHAT_ID}" \
+            -F document=@"${FILE}" \
+            -F caption="Dagelijkse NCSC CSV: ${FILE}"
