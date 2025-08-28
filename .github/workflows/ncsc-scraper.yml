@@ -2,7 +2,7 @@ name: NCSC Advisories Frequent
 
 on:
   schedule:
-    - cron: "*/60 * * * *"   # elke 10 min (UTC)
+    - cron: "*/30 * * * *"   # elke 10 minuten (UTC)
   workflow_dispatch:
 
 permissions:
@@ -15,6 +15,7 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,15 +39,19 @@ jobs:
           git commit -m "NCSC advisories update [skip ci]" || echo "No changes to commit"
           git push || true
 
+      # Lezen van output/last_run.json en outputs zetten
       - name: Read last_run.json
         id: last
         run: |
-          python - << 'PY'
-          import json
-          data = json.load(open('output/last_run.json', encoding='utf-8'))
-          print(f"new_count={data.get('new_count',0)}")
-          print(f"csv_path={data.get('csv_path','')}")
-          PY >> $GITHUB_OUTPUT
+          if [ ! -f output/last_run.json ]; then
+            echo "new_count=0" >> $GITHUB_OUTPUT
+            echo "csv_path=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          NEW_COUNT=$(jq '.new_count' output/last_run.json)
+          CSV_PATH=$(jq -r '.csv_path' output/last_run.json)
+          echo "new_count=$NEW_COUNT" >> $GITHUB_OUTPUT
+          echo "csv_path=$CSV_PATH" >> $GITHUB_OUTPUT
 
       - name: Send Telegram message
         if: steps.last.outputs.new_count != '0'
@@ -66,7 +71,11 @@ jobs:
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           FILE="${{ steps.last.outputs.csv_path }}"
-          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
-            -F chat_id="${CHAT_ID}" \
-            -F document=@"${FILE}" \
-            -F caption="Dagelijkse NCSC CSV: ${FILE}"
+          if [ -f "$FILE" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+              -F chat_id="${CHAT_ID}" \
+              -F document=@"${FILE}" \
+              -F caption="NCSC CSV: ${FILE}"
+          else
+            echo "CSV file not found at $FILE"
+          fi
