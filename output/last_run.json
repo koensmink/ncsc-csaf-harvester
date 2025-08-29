@@ -1,4 +1,6 @@
 {
   "new_count": 0,
-  "csv_path": "output/daily/2025-08-29.csv"
+  "csv_path": "output/daily/2025-08-29.csv",
+  "last_run_at": "2025-08-29T20:58:27+02:00",
+  "todays_count": 1
 }
