@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -35,9 +37,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase
           git add output/
-          git commit -m "NCSC advisories update [skip ci]" || echo "No changes to commit"
-          git push || true
+          git commit -m "NCSC advisories update [skip ci]" || exit 0
+          git push
 
       - name: Read last_run.json
         id: last
