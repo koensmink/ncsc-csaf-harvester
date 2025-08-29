@@ -1,83 +1,79 @@
-name: NCSC Advisories Frequent
+name: NCSC CSAF Harvester
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # elke 30 minuten (UTC)
+    - cron: "*/30 * * * *" # elke 30 min (UTC)
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: ncsc-scraper
-  cancel-in-progress: true
+  group: ncsc-csaf-harvester
+  cancel-in-progress: false
 
 jobs:
-  scrape:
+  harvest:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0          # nodig voor rebase
+          persist-credentials: true
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install feedparser
+          fi
 
       - name: Run scraper
         run: python scraper.py
 
-      - name: Commit & push changes
+      # Optioneel: Telegram notificatie bij nieuwe advisories
+      - name: (Optional) Notify Telegram if new advisories
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # jq staat doorgaans al op ubuntu-latest
+          NEW_COUNT=$(jq -r '.new_count' output/last_run.json 2>/dev/null || echo "")
+          if [ -n "$NEW_COUNT" ] && [ "$NEW_COUNT" != "0" ]; then
+            MSG="NCSC harvester: ${NEW_COUNT} nieuwe advisories."
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              -d text="$MSG" || true
+          fi
+
+      - name: Commit & push outputs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase
-          git add output/
-          git commit -m "NCSC advisories update [skip ci]" || exit 0
-          git push
 
-      - name: Read last_run.json
-        id: last
-        run: |
-          if [ ! -f output/last_run.json ]; then
-            echo "new_count=0" >> $GITHUB_OUTPUT
-            echo "csv_path=" >> $GITHUB_OUTPUT
+          # Stage alles wat veranderd is door de run
+          git add -A
+
+          # Commit alleen als er staged changes zijn
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
             exit 0
           fi
-          NEW_COUNT=$(jq '.new_count' output/last_run.json)
-          CSV_PATH=$(jq -r '.csv_path' output/last_run.json)
-          echo "new_count=$NEW_COUNT" >> $GITHUB_OUTPUT
-          echo "csv_path=$CSV_PATH" >> $GITHUB_OUTPUT
 
-      - name: Send Telegram message
-        if: steps.last.outputs.new_count != '0'
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          MSG="NCSC update: ${{ steps.last.outputs.new_count }} nieuwe adviezen.\nCSV: ${{ steps.last.outputs.csv_path }}"
-          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d chat_id="${CHAT_ID}" \
-            -d text="$MSG"
+          git commit -m "NCSC advisories update [skip ci]"
 
-      - name: Send Telegram CSV
-        if: steps.last.outputs.new_count != '0'
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          FILE="${{ steps.last.outputs.csv_path }}"
-          if [ -f "$FILE" ]; then
-            curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
-              -F chat_id="${CHAT_ID}" \
-              -F document=@"${FILE}" \
-              -F caption="NCSC CSV: ${FILE}"
-          else
-            echo "CSV file not found at $FILE"
-          fi
+          # Upstream binnenhalen en commit erbovenop zetten
+          git pull --rebase --autostash
+
+          # Push naar main
+          git push
