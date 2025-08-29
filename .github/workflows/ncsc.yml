@@ -2,7 +2,7 @@ name: NCSC CSAF Harvester
 
 on:
   schedule:
-    - cron: "*/60 * * * *" # elke 30 min (UTC)
+    - cron: "*/60 * * * *" # elke 60 min (UTC)
   workflow_dispatch:
 
 permissions:
@@ -70,7 +70,7 @@ jobs:
             exit 0
           fi
 
-          git commit -m "NCSC advisories update [skip ci]"
+          git commit -m "(automated) NCSC advisories update"
 
           # Upstream binnenhalen en commit erbovenop zetten
           git pull --rebase --autostash
