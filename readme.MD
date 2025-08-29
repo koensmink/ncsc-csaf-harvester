@@ -12,6 +12,7 @@ Deze repository haalt dagelijks automatisch de **NCSC beveiligingsadviezen** op 
 ## 📂 Repo-structuur
 ```
 ├─ scraper.py
+├─ requirements.txt
 ├─ output/
 │ ├─ seen.json # lijst met reeds verwerkte adviezen
 │ └─ daily/
