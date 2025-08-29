@@ -2,7 +2,7 @@ name: NCSC Advisories Frequent
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # elke 10 minuten (UTC)
+    - cron: "*/30 * * * *"   # elke 30 minuten (UTC)
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install feedparser
+        run: pip install -r requirements.txt
 
       - name: Run scraper
         run: python scraper.py
@@ -39,7 +39,6 @@ jobs:
           git commit -m "NCSC advisories update [skip ci]" || echo "No changes to commit"
           git push || true
 
-      # Lezen van output/last_run.json en outputs zetten
       - name: Read last_run.json
         id: last
         run: |
