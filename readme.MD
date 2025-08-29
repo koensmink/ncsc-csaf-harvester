@@ -7,7 +7,7 @@ Deze repository haalt dagelijks automatisch de **NCSC beveiligingsadviezen** op 
 - De scraper (`scraper.py`) leest de NCSC RSS-feed uit.  
 - Nieuwe adviezen worden herkend op basis van een **uniek ID**.  
 - Elk advies wordt precies **één keer** opgeslagen: in het CSV-bestand van de dag waarop het advies voor het eerst is gezien.  
-- GitHub Actions draait het script automatisch elke ochtend om 08:00 uur (NL-tijd) en commit de updates.
+- GitHub Actions draait het script automatisch elke 30 minuten en commit de updates.
 
 ## 📂 Repo-structuur
 ```
