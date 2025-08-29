@@ -27,9 +27,8 @@ Deze repository haalt dagelijks automatisch de **NCSC beveiligingsadviezen** op 
 
 ```
 csv
-Title,Link
-[M] Kwetsbaarheid in Apache HTTP Server,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0123
-[H] Kwetsbaarheid in Microsoft Exchange,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0124
+AdvisoryID,Version,Severity,Description,Link
+NCSC-2025-0271,[1.00],[M/H],Kwetsbaarheden verholpen in Arcserve Unified Data Protection,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0271
 ```
 
 ⚙️ Zelf draaien
