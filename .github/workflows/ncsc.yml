@@ -2,7 +2,7 @@ name: NCSC CSAF Harvester
 
 on:
   schedule:
-    - cron: "*/30 * * * *" # elke 30 min (UTC)
+    - cron: "*/60 * * * *" # elke 30 min (UTC)
   workflow_dispatch:
 
 permissions:
