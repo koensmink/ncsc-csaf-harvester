@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   harvest:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       # Gate: alleen in het weekend precies 23:55 lokale tijd draaien.
       # Door deze stap kun je veilig twee weekend-crons hebben zonder dubbele runs.
