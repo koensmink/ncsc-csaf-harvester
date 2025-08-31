@@ -85,6 +85,6 @@ jobs:
             exit 0
           fi
 
-          git commit -m "NCSC advisories update [skip ci]"
+          git commit -m "Automated NCSC advisories update by github action"
           git pull --rebase --autostash
           git push
