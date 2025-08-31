@@ -2,7 +2,11 @@ name: NCSC CSAF Harvester
 
 on:
   schedule:
-    - cron: "*/60 * * * *" # elke 60 min (UTC)
+    # Doordeweeks (ma-vr) elk uur om xx:00 UTC
+    - cron: "0 * * * 1-5"
+    # Weekend runs die samen 23:55 NL-tijd afdekken (CET/CEST)
+    - cron: "55 21 * * 6,0"  # dekkend voor CEST (UTC+2)
+    - cron: "55 22 * * 6,0"  # dekkend voor CET (UTC+1)
   workflow_dispatch:
 
 permissions:
@@ -15,12 +19,24 @@ concurrency:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-
     steps:
+      # Gate: alleen in het weekend precies 23:55 lokale tijd draaien.
+      # Door deze stap kun je veilig twee weekend-crons hebben zonder dubbele runs.
+      - name: Weekend 23:55 Europe/Amsterdam gate
+        run: |
+          DOW=$(TZ=Europe/Amsterdam date +%u)   # 1=maandag ... 7=zondag
+          HM=$(TZ=Europe/Amsterdam date +%H:%M)
+          if [ "$DOW" -ge 6 ]; then
+            if [ "$HM" != "23:55" ]; then
+              echo "Weekend en lokale tijd is $HM, niet 23:55 — job wordt overgeslagen."
+              exit 0
+            fi
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # nodig voor rebase
+          fetch-depth: 0         # nodig voor rebase
           persist-credentials: true
 
       - name: Set up Python
@@ -47,7 +63,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # jq staat doorgaans al op ubuntu-latest
           NEW_COUNT=$(jq -r '.new_count' output/last_run.json 2>/dev/null || echo "")
           if [ -n "$NEW_COUNT" ] && [ "$NEW_COUNT" != "0" ]; then
             MSG="NCSC harvester: ${NEW_COUNT} nieuwe advisories."
@@ -70,10 +85,6 @@ jobs:
             exit 0
           fi
 
-          git commit -m "(automated) NCSC advisories update"
-
-          # Upstream binnenhalen en commit erbovenop zetten
+          git commit -m "NCSC advisories update [skip ci]"
           git pull --rebase --autostash
-
-          # Push naar main
           git push
