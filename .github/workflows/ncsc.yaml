@@ -1,0 +1,163 @@
+name: NCSC CSAF Harvester
+
+on:
+  schedule:
+    # Doordeweeks (ma-vr) elk uur om xx:00 UTC
+    - cron: "0 * * * 1-5"
+    # Weekend-runs die samen 23:55 NL-tijd afdekken (CET/CEST)
+    - cron: "55 21 * * 6,0"  # dekkend voor CEST (UTC+2)
+    - cron: "55 22 * * 6,0"  # dekkend voor CET (UTC+1)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ncsc-csaf-harvester
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    runs-on: self-hosted
+    steps:
+      # Gate: in het weekend alleen doorlopen als het lokaal 23:55 is
+      - name: Weekend 23:55 Europe/Amsterdam gate
+        run: |
+          DOW=$(TZ=Europe/Amsterdam date +%u)   # 1=ma ... 7=zo
+          HM=$(TZ=Europe/Amsterdam date +%H:%M)
+          if [ "$DOW" -ge 6 ]; then
+            if [ "$HM" != "23:55" ]; then
+              echo "Weekend en lokale tijd is $HM, niet 23:55 — job wordt overgeslagen."
+              exit 0
+            fi
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install feedparser
+          fi
+
+      - name: Run scraper
+        run: python scraper.py
+
+      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt
+      - name: Notify Telegram (only on [H/H], [M/H], [H/M])
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import os, json, csv, re, glob, subprocess, datetime
+
+          token = os.getenv("TELEGRAM_BOT_TOKEN","").strip()
+          chat  = os.getenv("TELEGRAM_CHAT_ID","").strip()
+          if not token or not chat:
+              raise SystemExit(0)
+
+          def send(msg: str):
+              subprocess.run([
+                  "curl","-s","-X","POST", f"https://api.telegram.org/bot{token}/sendMessage",
+                  "-d", f"chat_id={chat}",
+                  "--data-urlencode", f"text={msg}"
+              ], check=False)
+
+          # Vind CSV van de laatste run
+          data = {}
+          try:
+              with open("output/last_run.json", encoding="utf-8") as f:
+                  data = json.load(f)
+          except Exception:
+              pass
+
+          csv_path = data.get("csv_path", "")
+          if not csv_path or not os.path.exists(csv_path):
+              files = sorted(glob.glob("output/daily/*.csv"), key=os.path.getmtime, reverse=True)
+              csv_path = files[0] if files else ""
+
+          if not csv_path or not os.path.exists(csv_path):
+              raise SystemExit(0)
+
+          # Zoek naar combinaties
+          patt = re.compile(r"\[(?:H/H|M/H|H/M)\]")
+          counts = {"[H/H]":0, "[M/H]":0, "[H/M]":0}
+          critical_rows = []  # (sev, title, url)
+
+          with open(csv_path, encoding="utf-8") as f:
+              sample = f.read(4096)
+              f.seek(0)
+              try:
+                  dialect = csv.Sniffer().sniff(sample)
+              except Exception:
+                  dialect = csv.excel
+
+              try:
+                  reader = csv.DictReader(f, dialect=dialect)
+                  has_headers = reader.fieldnames is not None
+              except Exception:
+                  has_headers = False
+
+              if has_headers:
+                  for row in reader:
+                      row_join = " ".join([str(v) for v in row.values() if v is not None])
+                      m = patt.search(row_join)
+                      if m:
+                          sev = m.group(0)
+                          counts[sev] = counts.get(sev, 0) + 1
+                          title = (row.get("title") or row.get("Title") or row.get("name") or "").strip()
+                          url   = (row.get("url") or row.get("link") or row.get("advisory_url") or "").strip()
+                          critical_rows.append((sev, title, url))
+              else:
+                  f.seek(0)
+                  for line in f:
+                      m = patt.search(line)
+                      if m:
+                          sev = m.group(0)
+                          counts[sev] = counts.get(sev, 0) + 1
+                          critical_rows.append((sev, line.strip(), ""))
+
+          total = sum(counts.values())
+          if total == 0:
+              raise SystemExit(0)
+
+          now = datetime.datetime.now(datetime.timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M %Z")
+          header = f"🚨🙂 URGENT | Hoog-risico combinaties gedetecteerd ({now})"
+          summary = ", ".join([f"{k}: {v}" for k, v in counts.items() if v > 0]) or "n/a"
+          lines = [header, summary, "", "Details:"]
+          for sev, title, url in critical_rows[:15]:
+              line = f"• {sev} — {title}"
+              if url:
+                  line += f" — {url}"
+              lines.append(line)
+          if len(critical_rows) > 15:
+              lines.append(f"… en {len(critical_rows)-15} meer.")
+
+          send("\n".join(lines))
+          PY
+
+      - name: Commit & push outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Automated NCSC advisories update"
+          git pull --rebase --autostash
+          git push
