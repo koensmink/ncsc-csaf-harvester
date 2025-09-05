@@ -164,4 +164,27 @@ if len(rows) > shown:
 print("\n".join(lines))
 PY
 
-          if [ ! -s /tmp/telegram_mess_]()
+          if [ ! -s /tmp/telegram_message.txt ]; then
+            echo "Geen high-risk combinaties gevonden."
+            exit 0
+          fi
+
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d disable_web_page_preview=true \
+            --data-urlencode "text@/tmp/telegram_message.txt" \
+          | jq -r '.ok' || true
+
+      - name: Commit & push outputs
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Automated NCSC advisories update"
+          git pull --rebase --autostash
+          git push
