@@ -79,7 +79,9 @@ jobs:
           fi
 
           python - "$CSV_PATH" > /tmp/telegram_message.txt <<'PY'
-import csv, sys, datetime
+import csv
+import sys
+import datetime
 csv_path = sys.argv[1]
 HIGH = {"H/H","M/H","H/M"}
 
