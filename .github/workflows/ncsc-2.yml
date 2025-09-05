@@ -1,0 +1,196 @@
+name: NCSC CSAF Harvester
+
+on:
+  schedule:
+    - cron: "0 * * * 1-5"     # doordeweeks elk uur (UTC)
+    - cron: "55 21 * * 6,0"   # weekend 23:55 NL tijd (CEST)
+    - cron: "55 22 * * 6,0"   # weekend 23:55 NL tijd (CET)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ncsc-csaf-harvester
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Weekend 23:55 Europe/Amsterdam gate
+        run: |
+          DOW=$(TZ=Europe/Amsterdam date +%u) # 1=ma ... 7=zo
+          HM=$(TZ=Europe/Amsterdam date +%H:%M)
+          if [ "$DOW" -ge 6 ] && [ "$HM" != "23:55" ]; then
+            echo "Weekend en lokale tijd is $HM, niet 23:55 — job wordt overgeslagen."
+            exit 0
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install feedparser jq
+          fi
+
+      - name: Run scraper
+        run: python scraper.py
+
+      - name: Notify Telegram (high-risk combos, strict filter + dedup)
+        if: ${{ secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != '' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          CSV_PATH=$(jq -r '.csv_path // ""' output/last_run.json 2>/dev/null || echo "")
+          if [ -z "$CSV_PATH" ] || [ ! -f "$CSV_PATH" ]; then
+            CSV_PATH=$(ls -t output/daily/*.csv 2>/dev/null | head -n1 || echo "")
+          fi
+          if [ -z "$CSV_PATH" ] || [ ! -f "$CSV_PATH" ]; then
+            echo "Geen CSV gevonden — geen Telegram-bericht."
+            exit 0
+          fi
+
+          python - "$CSV_PATH" > /tmp/telegram_message.txt <<'PY'
+import csv, sys, datetime, re
+csv_path = sys.argv[1]
+HIGH = {"H/H","M/H","H/M"}
+
+ID_RE = re.compile(r"^(?:NCSC|CVE|MSRC)-?\d{4}-\d{4,}$", re.IGNORECASE)
+HEADER_MARKERS = ("URGENT", "Hoog-risico")
+EMOJI_PREFIX = ("🚨",)
+
+def pick(d,*keys, default=""):
+    for k in keys:
+        v = d.get(k)
+        if v:
+            return str(v).strip()
+    return default
+
+def norm_title(t: str) -> str:
+    return re.sub(r"\s+", " ", t or "").strip().lower()
+
+def looks_like_header(t: str) -> bool:
+    if not t:
+        return False
+    if t.startswith(EMOJI_PREFIX):
+        return True
+    tl = t.lower()
+    return any(m.lower() in tl for m in HEADER_MARKERS)
+
+rows=[]
+seen_ids=set()
+seen_titles=set()
+
+with open(csv_path, newline='', encoding="utf-8") as f:
+    reader = csv.DictReader(f)
+    if not reader.fieldnames:
+        sys.exit(0)
+    for r in reader:
+        combo = pick(r, "SeverityCombo","severity_combo","Combo","combo")
+        if combo not in HIGH:
+            continue
+        aid   = pick(r, "AdvisoryID","advisory_id","ID","id","csaf_id")
+        title = pick(r, "Title","title","AdvisoryTitle","advisory_title","name","Name")
+
+        if looks_like_header(title):
+            continue
+        if not aid and not title:
+            continue
+
+        if aid and ID_RE.match(aid) and aid in seen_ids:
+            continue
+        tkey = norm_title(title)
+        if tkey and tkey in seen_titles:
+            continue
+
+        if aid and ID_RE.match(aid):
+            seen_ids.add(aid)
+        if tkey:
+            seen_titles.add(tkey)
+
+        rows.append({
+            "combo": combo,
+            "title": title,
+            "id": aid,
+            "url": pick(r, "URL","url","AdvisoryURL","advisory_url","link","Link","reference","csaf_url")
+        })
+
+if not rows:
+    sys.exit(0)
+
+ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+counts = {"H/H":0,"M/H":0,"H/M":0}
+for r in rows:
+    if r["combo"] in counts:
+        counts[r["combo"]] += 1
+
+lines = [f"🚨🙂 URGENT | Hoog-risico combinaties gedetecteerd ({ts})"]
+for k in ("H/H","M/H","H/M"):
+    if counts[k]:
+        lines.append(f"[{k}]: {counts[k]}")
+
+lines.append("")
+lines.append("Details:")
+
+shown = 0
+for r in rows:
+    if shown >= 15:
+        break
+    combo = r["combo"] or "?/?"
+    title = r["title"] or "Advisory"
+    aid   = r["id"]
+    url   = r["url"]
+
+    bullet = f"• [{combo}] — {title}"
+    if aid:
+        bullet += f" ({aid})"
+    lines.append(bullet)
+    if url and url.startswith(("http://","https://")):
+        lines.append(f"  {url}")
+    shown += 1
+
+if len(rows) > shown:
+    lines.append(f"… en {len(rows)-shown} meer.")
+
+print("\n".join(lines))
+PY
+
+          if [ ! -s /tmp/telegram_message.txt ]; then
+            echo "Geen high-risk combinaties gevonden."
+            exit 0
+          fi
+
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"             -d chat_id="${TELEGRAM_CHAT_ID}"             -d disable_web_page_preview=true             --data-urlencode "text@/tmp/telegram_message.txt"           | jq -r '.ok' || true
+
+      - name: Commit & push outputs
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Automated NCSC advisories update [skip ci]"
+          git pull --rebase --autostash
+          git push
