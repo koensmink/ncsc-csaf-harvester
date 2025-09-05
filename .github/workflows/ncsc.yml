@@ -19,12 +19,11 @@ concurrency:
 jobs:
   harvest:
     runs-on: self-hosted
-
     steps:
       # Gate: in het weekend alleen doorlopen als het lokaal 23:55 is
       - name: Weekend 23:55 Europe/Amsterdam gate
         run: |
-          DOW=$(TZ=Europe/Amsterdam date +%u) # 1=ma ... 7=zo
+          DOW=$(TZ=Europe/Amsterdam date +%u)   # 1=ma ... 7=zo
           HM=$(TZ=Europe/Amsterdam date +%H:%M)
           if [ "$DOW" -ge 6 ]; then
             if [ "$HM" != "23:55" ]; then
@@ -46,138 +45,112 @@ jobs:
 
       - name: Install dependencies
         run: |
-          set -e
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           else
-            pip install feedparser jq
+            pip install feedparser
           fi
 
       - name: Run scraper
         run: python scraper.py
 
-      # Meld alleen bij [H/H], [M/H], [H/M] en dedupe op AdvisoryID én Title
-      - name: Notify Telegram (high-risk combos, dedup by ID and Title)
-        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt
+      - name: Notify Telegram (only on [H/H], [M/H], [H/M])
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          set -euo pipefail
+          python - <<'PY'
+          import os, json, csv, re, glob, subprocess, datetime
 
-          # Probeer pad uit last_run.json te lezen (optioneel)
-          CSV_PATH=$(jq -r '.csv_path // ""' output/last_run.json 2>/dev/null || echo "")
-          # Fallback naar laatste CSV indien pad ontbreekt
-          if [ -z "$CSV_PATH" ] || [ ! -f "$CSV_PATH" ]; then
-            CSV_PATH=$(ls -t output/daily/*.csv 2>/dev/null | head -n1 || echo "")
-          fi
-          if [ -z "$CSV_PATH" ] || [ ! -f "$CSV_PATH" ]; then
-            echo "Geen CSV gevonden — geen Telegram-bericht."
-            exit 0
-          fi
+          token = os.getenv("TELEGRAM_BOT_TOKEN","").strip()
+          chat  = os.getenv("TELEGRAM_CHAT_ID","").strip()
+          if not token or not chat:
+              raise SystemExit(0)
 
-          python - "$CSV_PATH" > /tmp/telegram_message.txt <<'PY'
-import csv
-import sys
-import datetime
+          def send(msg: str):
+              subprocess.run([
+                  "curl","-s","-X","POST", f"https://api.telegram.org/bot{token}/sendMessage",
+                  "-d", f"chat_id={chat}",
+                  "--data-urlencode", f"text={msg}"
+              ], check=False)
 
-csv_path = sys.argv[1]
-HIGH = {"H/H","M/H","H/M"}
+          # Vind CSV van de laatste run
+          data = {}
+          try:
+              with open("output/last_run.json", encoding="utf-8") as f:
+                  data = json.load(f)
+          except Exception:
+              pass
 
-def pick(d,*keys, default=""):
-    for k in keys:
-        v = d.get(k)
-        if v:
-            return str(v).strip()
-    return default
+          csv_path = data.get("csv_path", "")
+          if not csv_path or not os.path.exists(csv_path):
+              files = sorted(glob.glob("output/daily/*.csv"), key=os.path.getmtime, reverse=True)
+              csv_path = files[0] if files else ""
 
-rows=[]
-seen_ids=set()
-seen_titles=set()
+          if not csv_path or not os.path.exists(csv_path):
+              raise SystemExit(0)
 
-with open(csv_path, newline='', encoding="utf-8") as f:
-    reader = csv.DictReader(f)
-    if not reader.fieldnames:
-        sys.exit(0)
-    for r in reader:
-        combo = pick(r, "SeverityCombo","severity_combo","Combo","combo")
-        if combo not in HIGH:
-            continue
+          # Zoek naar combinaties
+          patt = re.compile(r"\[(?:H/H|M/H|H/M)\]")
+          counts = {"[H/H]":0, "[M/H]":0, "[H/M]":0}
+          critical_rows = []  # (sev, title, url)
 
-        aid   = pick(r, "AdvisoryID","advisory_id","ID","id","csaf_id")
-        title = pick(r, "Title","title","AdvisoryTitle","advisory_title","name","Name")
-        tkey  = title.lower().strip() if title else ""
+          with open(csv_path, encoding="utf-8") as f:
+              sample = f.read(4096)
+              f.seek(0)
+              try:
+                  dialect = csv.Sniffer().sniff(sample)
+              except Exception:
+                  dialect = csv.excel
 
-        # Dedup: ID of titel
-        if aid and aid in seen_ids:
-            continue
-        if tkey and tkey in seen_titles:
-            continue
+              try:
+                  reader = csv.DictReader(f, dialect=dialect)
+                  has_headers = reader.fieldnames is not None
+              except Exception:
+                  has_headers = False
 
-        if aid:
-            seen_ids.add(aid)
-        if tkey:
-            seen_titles.add(tkey)
+              if has_headers:
+                  for row in reader:
+                      row_join = " ".join([str(v) for v in row.values() if v is not None])
+                      m = patt.search(row_join)
+                      if m:
+                          sev = m.group(0)
+                          counts[sev] = counts.get(sev, 0) + 1
+                          title = (row.get("title") or row.get("Title") or row.get("name") or "").strip()
+                          url   = (row.get("url") or row.get("link") or row.get("advisory_url") or "").strip()
+                          critical_rows.append((sev, title, url))
+              else:
+                  f.seek(0)
+                  for line in f:
+                      m = patt.search(line)
+                      if m:
+                          sev = m.group(0)
+                          counts[sev] = counts.get(sev, 0) + 1
+                          critical_rows.append((sev, line.strip(), ""))
 
-        rows.append(r)
+          total = sum(counts.values())
+          if total == 0:
+              raise SystemExit(0)
 
-if not rows:
-    sys.exit(0)
+          now = datetime.datetime.now(datetime.timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M %Z")
+          header = f"🚨🙂 URGENT | Hoog-risico combinaties gedetecteerd ({now})"
+          summary = ", ".join([f"{k}: {v}" for k, v in counts.items() if v > 0]) or "n/a"
+          lines = [header, summary, "", "Details:"]
+          for sev, title, url in critical_rows[:15]:
+              line = f"• {sev} — {title}"
+              if url:
+                  line += f" — {url}"
+              lines.append(line)
+          if len(critical_rows) > 15:
+              lines.append(f"… en {len(critical_rows)-15} meer.")
 
-ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-
-# Tellen per combo
-counts = {"H/H":0,"M/H":0,"H/M":0}
-for r in rows:
-    combo = pick(r, "SeverityCombo","severity_combo","Combo","combo")
-    if combo in counts:
-        counts[combo] += 1
-
-lines = [f"🚨🙂 URGENT | Hoog-risico combinaties gedetecteerd ({ts})"]
-for k in ("H/H","M/H","H/M"):
-    if counts[k]:
-        lines.append(f"[{k}]: {counts[k]}")
-lines.append("")
-lines.append("Details:")
-
-# Detailsregels (max 15)
-shown = 0
-for r in rows:
-    if shown >= 15:
-        break
-    combo = pick(r, "SeverityCombo","severity_combo","Combo","combo", default="?/?")
-    title = pick(r, "Title","title","AdvisoryTitle","advisory_title","name","Name", default="Advisory")
-    aid   = pick(r, "AdvisoryID","advisory_id","ID","id","csaf_id")
-    url   = pick(r, "URL","url","AdvisoryURL","advisory_url","link","Link","reference","csaf_url")
-    bullet = f"• [{combo}] — {title}"
-    if aid:
-        bullet += f" ({aid})"
-    lines.append(bullet)
-    if url:
-        lines.append(f"  {url}")
-    shown += 1
-
-if len(rows) > shown:
-    lines.append(f"… en {len(rows)-shown} meer.")
-
-print("\n".join(lines))
-PY
-
-          if [ ! -s /tmp/telegram_message.txt ]; then
-            echo "Geen high-risk combinaties gevonden."
-            exit 0
-          fi
-
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            -d disable_web_page_preview=true \
-            --data-urlencode "text@/tmp/telegram_message.txt" \
-          | jq -r '.ok' || true
+          send("\n".join(lines))
+          PY
 
       - name: Commit & push outputs
         run: |
-          set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
