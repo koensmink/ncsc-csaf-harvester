@@ -2,12 +2,10 @@ name: NCSC CSAF Harvester
 
 on:
   schedule:
-    # Doordeweeks (ma-vr) elk uur om xx:00 UTC
-    - cron: "0 * * * 1-5"
-    # Weekend-runs die samen 23:55 NL-tijd afdekken (CET/CEST)
-    - cron: "55 21 * * 6,0"  # dekkend voor CEST (UTC+2)
-    - cron: "55 22 * * 6,0"  # dekkend voor CET (UTC+1)
-  workflow_dispatch:
+    - cron: "0 * * * 1-5"     # doordeweeks elk uur (UTC)
+    - cron: "55 21 * * 6,0"   # weekend 23:55 NL-tijd tijdens CEST
+    - cron: "55 22 * * 6,0"   # weekend 23:55 NL-tijd tijdens CET
+  workflow_dispatch:          # handmatig starten
 
 permissions:
   contents: write
@@ -18,10 +16,9 @@ concurrency:
 
 jobs:
   harvest:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest   # <— zet tijdelijk op ubuntu-latest voor zekerheid
 
     steps:
-      # Gate: in het weekend alleen doorlopen als het lokaal 23:55 is
       - name: Weekend 23:55 Europe/Amsterdam gate
         run: |
           DOW=$(TZ=Europe/Amsterdam date +%u) # 1=ma ... 7=zo
@@ -58,7 +55,7 @@ jobs:
         run: python scraper.py
 
       - name: Notify Telegram (high-risk combos, strict filter + dedup)
-        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        if: ${{ secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != '' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -74,11 +71,7 @@ jobs:
           fi
 
           python - "$CSV_PATH" > /tmp/telegram_message.txt <<'PY'
-import csv
-import sys
-import datetime
-import re
-
+import csv, sys, datetime, re
 csv_path = sys.argv[1]
 HIGH = {"H/H","M/H","H/M"}
 
@@ -204,6 +197,6 @@ PY
             echo "No changes to commit."
             exit 0
           fi
-          git commit -m "Automated NCSC advisories update"
+          git commit -m "Automated NCSC advisories update [skip ci]"
           git pull --rebase --autostash
           git push
