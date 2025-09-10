@@ -1,6 +1,6 @@
 # 🔎 NCSC CSAF Harvester
 
-[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/koensmink/ncsc-csaf-harvester/ncsc.yml?branch=main)](https://github.com/koensmink/ncsc-csaf-harvester/actions)
+[![GitHub Workflow Status](https://github.com/koensmink/ncsc-csaf-harvester/actions/workflows/ncsc.yaml/badge.svg)](https://github.com/koensmink/ncsc-csaf-harvester/actions/workflows/ncsc.yaml)
 [![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
