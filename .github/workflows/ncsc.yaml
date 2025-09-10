@@ -56,26 +56,29 @@ jobs:
       - name: Run scraper
         run: python scraper.py
 
-      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt — zonder "Hoog-risico..." of timestamp
-      - name: Notify Telegram (only on [H/H], [M/H], [H/M])
+      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt — HTML bericht, geen "Hoog-risico..." of timestamp
+      - name: Notify Telegram (HTML, only on [H/H], [M/H], [H/M])
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - <<'PY'
-          import os, json, csv, re, glob, subprocess, pathlib
+          import os, json, csv, re, glob, subprocess, html, textwrap
 
           token = os.getenv("TELEGRAM_BOT_TOKEN","").strip()
           chat  = os.getenv("TELEGRAM_CHAT_ID","").strip()
           if not token or not chat:
               raise SystemExit(0)
 
-          def send(msg: str):
-              # Gebruik --data-urlencode zodat nieuwe regels/UTF-8 goed gaan
+          def send(msg_html: str):
+              # Telegram limiet ~4096 chars per bericht
+              if len(msg_html) > 3800:
+                  msg_html = msg_html[:3770].rstrip() + "…"
               subprocess.run([
                   "curl","-sS","-X","POST", f"https://api.telegram.org/bot{token}/sendMessage",
                   "--data-urlencode", f"chat_id={chat}",
-                  "--data-urlencode", f"text={msg}",
+                  "--data-urlencode", f"text={msg_html}",
+                  "--data-urlencode", "parse_mode=HTML",
                   "--data-urlencode", "disable_web_page_preview=true"
               ], check=False)
 
@@ -95,7 +98,6 @@ jobs:
           if not csv_path or not os.path.exists(csv_path):
               raise SystemExit(0)
 
-          # Helpers om tag/titel/url robuust te vinden
           TAG_RE = re.compile(r"\[(H/H|M/H|H/M)\]", re.IGNORECASE)
 
           def find_tag(d):
@@ -111,7 +113,6 @@ jobs:
                   v = d.get(k)
                   if isinstance(v,str) and v.strip():
                       return v.strip()
-              # fallback: eerste niet-lege tekstveld
               for v in d.values():
                   if isinstance(v,str) and v.strip():
                       return v.strip()
@@ -153,18 +154,24 @@ jobs:
           if not rows:
               raise SystemExit(0)
 
-          # Bouw bericht (zonder "Hoog-risico..." en zonder timestamp)
-          lines = ["🚨🙂 URGENT"]
+          # Bouw HTML-bericht
+          parts = ["🚨🙂 <b>URGENT</b>"]
           if len(rows) > 1:
-              lines.append("") ; lines.append("Details:")
+              parts.append("")  # lege regel
+              parts.append("Details:")
+          # Max 20 items om lengte te bewaken
           for tag, title, url in rows[:20]:
-              lines.append(f"• {tag} — {title}")
+              tag_e   = html.escape(tag)
+              title_e = html.escape(title)
               if url:
-                  lines.append(f"  {url}")
+                  url_e = html.escape(url, quote=True)
+                  parts.append(f"• {tag_e} — <b>{title_e}</b><br>  🔗 <a href=\"{url_e}\">Bekijk advisory</a>")
+              else:
+                  parts.append(f"• {tag_e} — <b>{title_e}</b>")
           if len(rows) > 20:
-              lines.append(f"… en nog {len(rows)-20} meer.")
+              parts.append(f"… en nog {len(rows)-20} meer.")
 
-          send("\n".join(lines))
+          send("\n".join(parts))
           PY
 
       - name: Commit & push outputs
