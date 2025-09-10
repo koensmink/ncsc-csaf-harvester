@@ -19,6 +19,7 @@ concurrency:
 jobs:
   harvest:
     runs-on: self-hosted
+
     steps:
       # Gate: in het weekend alleen doorlopen als het lokaal 23:55 is
       - name: Weekend 23:55 Europe/Amsterdam gate
@@ -55,14 +56,14 @@ jobs:
       - name: Run scraper
         run: python scraper.py
 
-      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt
+      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt — zonder "Hoog-risico..." of timestamp
       - name: Notify Telegram (only on [H/H], [M/H], [H/M])
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - <<'PY'
-          import os, json, csv, re, glob, subprocess, datetime
+          import os, json, csv, re, glob, subprocess, pathlib
 
           token = os.getenv("TELEGRAM_BOT_TOKEN","").strip()
           chat  = os.getenv("TELEGRAM_CHAT_ID","").strip()
@@ -70,10 +71,12 @@ jobs:
               raise SystemExit(0)
 
           def send(msg: str):
+              # Gebruik --data-urlencode zodat nieuwe regels/UTF-8 goed gaan
               subprocess.run([
-                  "curl","-s","-X","POST", f"https://api.telegram.org/bot{token}/sendMessage",
-                  "-d", f"chat_id={chat}",
-                  "--data-urlencode", f"text={msg}"
+                  "curl","-sS","-X","POST", f"https://api.telegram.org/bot{token}/sendMessage",
+                  "--data-urlencode", f"chat_id={chat}",
+                  "--data-urlencode", f"text={msg}",
+                  "--data-urlencode", "disable_web_page_preview=true"
               ], check=False)
 
           # Vind CSV van de laatste run
@@ -92,12 +95,40 @@ jobs:
           if not csv_path or not os.path.exists(csv_path):
               raise SystemExit(0)
 
-          # Zoek naar combinaties
-          patt = re.compile(r"\[(?:H/H|M/H|H/M)\]")
-          counts = {"[H/H]":0, "[M/H]":0, "[H/M]":0}
-          critical_rows = []  # (sev, title, url)
+          # Helpers om tag/titel/url robuust te vinden
+          TAG_RE = re.compile(r"\[(H/H|M/H|H/M)\]", re.IGNORECASE)
 
-          with open(csv_path, encoding="utf-8") as f:
+          def find_tag(d):
+              for v in d.values():
+                  if isinstance(v, str):
+                      m = TAG_RE.search(v)
+                      if m:
+                          return f"[{m.group(1).upper()}]"
+              return ""
+
+          def find_title(d):
+              for k in ("title","Title","advisory_title","name","summary","headline"):
+                  v = d.get(k)
+                  if isinstance(v,str) and v.strip():
+                      return v.strip()
+              # fallback: eerste niet-lege tekstveld
+              for v in d.values():
+                  if isinstance(v,str) and v.strip():
+                      return v.strip()
+              return "(zonder titel)"
+
+          def find_url(d):
+              for k in ("url","URL","link","advisory_url","reference","reference_url","canonical_url"):
+                  v = d.get(k)
+                  if isinstance(v,str) and v.startswith(("http://","https://")):
+                      return v.strip()
+              for v in d.values():
+                  if isinstance(v,str) and v.startswith(("http://","https://")):
+                      return v.strip()
+              return ""
+
+          rows = []
+          with open(csv_path, encoding="utf-8", newline="") as f:
               sample = f.read(4096)
               f.seek(0)
               try:
@@ -107,44 +138,31 @@ jobs:
 
               try:
                   reader = csv.DictReader(f, dialect=dialect)
-                  has_headers = reader.fieldnames is not None
               except Exception:
-                  has_headers = False
+                  reader = None
 
-              if has_headers:
-                  for row in reader:
-                      row_join = " ".join([str(v) for v in row.values() if v is not None])
-                      m = patt.search(row_join)
-                      if m:
-                          sev = m.group(0)
-                          counts[sev] = counts.get(sev, 0) + 1
-                          title = (row.get("title") or row.get("Title") or row.get("name") or "").strip()
-                          url   = (row.get("url") or row.get("link") or row.get("advisory_url") or "").strip()
-                          critical_rows.append((sev, title, url))
-              else:
-                  f.seek(0)
-                  for line in f:
-                      m = patt.search(line)
-                      if m:
-                          sev = m.group(0)
-                          counts[sev] = counts.get(sev, 0) + 1
-                          critical_rows.append((sev, line.strip(), ""))
+              if reader and reader.fieldnames:
+                  for d in reader:
+                      tag = find_tag(d)
+                      if not tag:
+                          continue
+                      title = find_title(d)
+                      url   = find_url(d)
+                      rows.append((tag, title, url))
 
-          total = sum(counts.values())
-          if total == 0:
+          if not rows:
               raise SystemExit(0)
 
-          now = datetime.datetime.now(datetime.timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M %Z")
-          header = f"🚨🙂 URGENT | Hoog-risico combinaties gedetecteerd ({now})"
-          summary = ", ".join([f"{k}: {v}" for k, v in counts.items() if v > 0]) or "n/a"
-          lines = [header, summary, "", "Details:"]
-          for sev, title, url in critical_rows[:15]:
-              line = f"• {sev} — {title}"
+          # Bouw bericht (zonder "Hoog-risico..." en zonder timestamp)
+          lines = ["🚨🙂 URGENT"]
+          if len(rows) > 1:
+              lines.append("") ; lines.append("Details:")
+          for tag, title, url in rows[:20]:
+              lines.append(f"• {tag} — {title}")
               if url:
-                  line += f" — {url}"
-              lines.append(line)
-          if len(critical_rows) > 15:
-              lines.append(f"… en {len(critical_rows)-15} meer.")
+                  lines.append(f"  {url}")
+          if len(rows) > 20:
+              lines.append(f"… en nog {len(rows)-20} meer.")
 
           send("\n".join(lines))
           PY
