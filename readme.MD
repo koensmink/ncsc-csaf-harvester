@@ -1,42 +1,93 @@
-# 📡 NCSC Advisories Daily Scraper
+# 🔎 NCSC CSAF Harvester
 
-Deze repository haalt dagelijks automatisch de **NCSC beveiligingsadviezen** op uit de officiële [NCSC RSS-feed](https://advisories.ncsc.nl/rss/advisories) en slaat deze op in **CSV-bestanden per dag**.
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/koensmink/ncsc-csaf-harvester/ncsc.yml?branch=main)](https://github.com/koensmink/ncsc-csaf-harvester/actions)
+[![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## 🔧 Hoe werkt het?
+Automatisch ophalen, filteren en melden van **NCSC security advisories** via CSAF en RSS.  
+Dit project helpt bij het tijdig signaleren van kritieke kwetsbaarheden en biedt directe notificaties via **Telegram**.
 
-- De scraper (`scraper.py`) leest de NCSC RSS-feed uit.  
-- Nieuwe adviezen worden herkend op basis van een **uniek ID**.  
-- Elk advies wordt precies **één keer** opgeslagen: in het CSV-bestand van de dag waarop het advies voor het eerst is gezien.  
-- GitHub Actions draait het script automatisch elke 60 minuten en commit de updates doordeweek
-- GitHub actions draait het script automatisch in het weekend om 23:55 (er gebeurd in het weekend minder)
-- Telegram notificeert (alleen) als de combinatie [H/H], [M/H] of [H/M] is gevonden
+---
 
-## 📂 Repo-structuur
-```
-├─ scraper.py
-├─ requirements.txt
-├─ output/
-│ ├─ seen.json # lijst met reeds verwerkte adviezen
-│ └─ daily/
-│ ├─ 2025-08-28.csv # CSV met adviezen van die dag
-│ ├─ 2025-08-29.csv
-│ └─ ...
-└─ .github/workflows/ncsc-scraper.yml
-```
+## 🚀 Features
 
-## 📊 Voorbeeld output
+- Haalt advisories op van [advisories.ncsc.nl](https://advisories.ncsc.nl)  
+- Parseert CSAF/RSS en schrijft dagelijkse CSV + JSON outputs weg  
+- **Telegram notificaties** bij kritieke combinaties: `[H/H]`, `[M/H]`, `[H/M]`  
+- Slimme scheduling: doordeweeks elk uur, in het weekend alleen 23:55 (NL-tijd)  
+- GitHub Actions workflow met automatische commit & push  
 
-`output/daily/2025-08-28.csv`:
+---
+
+## 📂 Repository structuur
 
 ```
-csv
-AdvisoryID,Version,Severity,Description,Link
-NCSC-2025-0271,[1.00],[M/H],Kwetsbaarheden verholpen in Arcserve Unified Data Protection,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0271
+.github/workflows/   → CI/CD workflows (harvester + Telegram alerts)
+output/              → Dagelijkse CSV/JSON resultaten
+scraper.py           → Scraper code
+requirements.txt     → Python dependencies
 ```
 
-⚙️ Zelf draaien
-Lokaal:
-```
-pip install feedparser
+---
+
+## ⚙️ Installatie & gebruik
+
+### Lokaal draaien
+```bash
+git clone https://github.com/koensmink/ncsc-csaf-harvester.git
+cd ncsc-csaf-harvester
+pip install -r requirements.txt
 python scraper.py
 ```
+
+### GitHub Actions
+De workflow (`.github/workflows/ncsc.yml`) draait automatisch volgens het ingestelde schema.  
+Resultaten worden gecommit naar de `output/` map in de repo.
+
+---
+
+## 🔔 Telegram notificaties
+
+Stel de volgende **secrets** in bij je GitHub repository settings:
+
+- `TELEGRAM_BOT_TOKEN`  
+- `TELEGRAM_CHAT_ID`  
+
+Berichten zien er bijvoorbeeld zo uit:
+
+```
+🚨🙂 URGENT
+
+Details:
+• [H/H] — Microsoft Exchange kwetsbaarheid
+  🔗 Bekijk advisory
+• [M/H] — Cisco ASA Remote Code Execution
+  🔗 Bekijk advisory
+```
+
+---
+
+## 📊 Output
+
+Elke run schrijft weg naar:
+
+- `output/daily/YYYY-MM-DD.csv`  
+- `output/last_run.json`  
+
+Met daarin metadata over de laatste run en nieuw gedetecteerde advisories.
+
+## 📜 License
+
+Dit project is gelicenseerd onder de [MIT License](LICENSE).
+
+---
+## 🔐 Security Policy
+
+Als je een kwetsbaarheid in deze code vindt:
+
+1. Meld deze **niet** publiekelijk in een issue  
+2. Neem direct contact op met de maintainer via [GitHub profiel](https://github.com/koensmink)  
+3. Je melding wordt vertrouwelijk behandeld en zo snel mogelijk onderzocht  
+
+---
+✍️ Maintainer: [Koen Smink](https://github.com/koensmink)
