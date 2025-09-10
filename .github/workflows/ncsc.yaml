@@ -56,7 +56,7 @@ jobs:
       - name: Run scraper
         run: python scraper.py
 
-      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt — HTML bericht, titel als klikbare link
+      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt — HTML bericht, oude stijl (titel vet + aparte link)
       - name: Notify Telegram (HTML, only on [H/H], [M/H], [H/M])
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -71,6 +71,7 @@ jobs:
               raise SystemExit(0)
 
           def send(msg_html: str):
+              # Telegram limiet ~4096; iets marge
               if len(msg_html) > 3800:
                   msg_html = msg_html[:3770].rstrip() + "…"
               subprocess.run([
@@ -153,7 +154,7 @@ jobs:
           if not rows:
               raise SystemExit(0)
 
-          # Bouw HTML-bericht: titel = klikbare link
+          # Bouw HTML-bericht (oude stijl: titel vet + aparte linkregel)
           parts = ["🚨🙂 <b>URGENT</b>"]
           if len(rows) > 1:
               parts.append("")
@@ -163,7 +164,7 @@ jobs:
               title_e = html.escape(title)
               if url:
                   url_e = html.escape(url, quote=True)
-                  parts.append(f"• {tag_e} — <a href=\"{url_e}\"><b>{title_e}</b></a>")
+                  parts.append(f"• {tag_e} — <b>{title_e}</b>\n  🔗 <a href=\"{url_e}\">Bekijk advisory</a>")
               else:
                   parts.append(f"• {tag_e} — <b>{title_e}</b>")
           if len(rows) > 20:
