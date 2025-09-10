@@ -15,8 +15,6 @@ When reporting, please include (if possible):
 - Affected files/lines (if known)
 - Suggested remediation or mitigation ideas
 
-We aim to acknowledge valid reports within **5 working days**.
-
 ## Scope
 Reports relevant to this repository include (non-exhaustive):
 - Command injection / arbitrary code execution
