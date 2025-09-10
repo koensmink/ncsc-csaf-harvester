@@ -21,7 +21,6 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      # Gate: in het weekend alleen doorlopen als het lokaal 23:55 is
       - name: Weekend 23:55 Europe/Amsterdam gate
         run: |
           DOW=$(TZ=Europe/Amsterdam date +%u)   # 1=ma ... 7=zo
@@ -56,14 +55,14 @@ jobs:
       - name: Run scraper
         run: python scraper.py
 
-      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt — HTML bericht, oude stijl (titel vet + aparte link)
+      # HTML-bericht: filter op [H/H], [M/H], [H/M]; Description als titel, Link als URL
       - name: Notify Telegram (HTML, only on [H/H], [M/H], [H/M])
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - <<'PY'
-          import os, json, csv, re, glob, subprocess, html
+          import os, json, csv, re, glob, subprocess, html, pathlib
 
           token = os.getenv("TELEGRAM_BOT_TOKEN","").strip()
           chat  = os.getenv("TELEGRAM_CHAT_ID","").strip()
@@ -71,7 +70,7 @@ jobs:
               raise SystemExit(0)
 
           def send(msg_html: str):
-              # Telegram limiet ~4096; iets marge
+              # Telegram limiet ~4096; kleine marge
               if len(msg_html) > 3800:
                   msg_html = msg_html[:3770].rstrip() + "…"
               subprocess.run([
@@ -82,7 +81,7 @@ jobs:
                   "--data-urlencode", "disable_web_page_preview=true"
               ], check=False)
 
-          # Vind CSV van de laatste run
+          # CSV pad bepalen (last_run.json -> csv_path of laatste uit output/daily)
           data = {}
           try:
               with open("output/last_run.json", encoding="utf-8") as f:
@@ -94,79 +93,47 @@ jobs:
           if not csv_path or not os.path.exists(csv_path):
               files = sorted(glob.glob("output/daily/*.csv"), key=os.path.getmtime, reverse=True)
               csv_path = files[0] if files else ""
-
           if not csv_path or not os.path.exists(csv_path):
               raise SystemExit(0)
 
           TAG_RE = re.compile(r"\[(H/H|M/H|H/M)\]", re.IGNORECASE)
 
-          def find_tag(d):
-              for v in d.values():
-                  if isinstance(v, str):
-                      m = TAG_RE.search(v)
-                      if m:
-                          return f"[{m.group(1).upper()}]"
-              return ""
-
-          def find_title(d):
-              for k in ("title","Title","advisory_title","name","summary","headline"):
-                  v = d.get(k)
-                  if isinstance(v,str) and v.strip():
-                      return v.strip()
-              for v in d.values():
-                  if isinstance(v,str) and v.strip():
-                      return v.strip()
-              return "(zonder titel)"
-
-          def find_url(d):
-              for k in ("url","URL","link","advisory_url","reference","reference_url","canonical_url"):
-                  v = d.get(k)
-                  if isinstance(v,str) and v.startswith(("http://","https://")):
-                      return v.strip()
-              for v in d.values():
-                  if isinstance(v,str) and v.startswith(("http://","https://")):
-                      return v.strip()
-              return ""
-
           rows = []
           with open(csv_path, encoding="utf-8", newline="") as f:
-              sample = f.read(4096)
-              f.seek(0)
+              # Robust voor quotes/komma's
+              sample = f.read(4096); f.seek(0)
               try:
                   dialect = csv.Sniffer().sniff(sample)
               except Exception:
                   dialect = csv.excel
+              reader = csv.DictReader(f, dialect=dialect)
+              if not reader.fieldnames:
+                  raise SystemExit(0)
 
-              try:
-                  reader = csv.DictReader(f, dialect=dialect)
-              except Exception:
-                  reader = None
-
-              if reader and reader.fieldnames:
-                  for d in reader:
-                      tag = find_tag(d)
-                      if not tag:
-                          continue
-                      title = find_title(d)
-                      url   = find_url(d)
-                      rows.append((tag, title, url))
+              for d in reader:
+                  sev = (d.get("Severity") or "").strip()
+                  if not TAG_RE.search(sev or ""):
+                      continue
+                  desc = (d.get("Description") or "").strip()
+                  if not desc:
+                      desc = (d.get("AdvisoryID") or "").strip() or "(zonder titel)"
+                  url  = (d.get("Link") or "").strip()
+                  rows.append((sev, desc, url))
 
           if not rows:
               raise SystemExit(0)
 
-          # Bouw HTML-bericht (oude stijl: titel vet + aparte linkregel)
+          # Bericht opbouwen (titel vet + aparte linkregel)
           parts = ["🚨🙂 <b>URGENT</b>"]
           if len(rows) > 1:
-              parts.append("")
-              parts.append("Details:")
-          for tag, title, url in rows[:20]:
-              tag_e   = html.escape(tag)
-              title_e = html.escape(title)
+              parts += ["", "Details:"]
+          for sev, desc, url in rows[:20]:
+              sev_e  = html.escape(sev)
+              desc_e = html.escape(desc if len(desc) <= 200 else desc[:199] + "…")
+              parts.append(f"• {sev_e} — <b>{desc_e}</b>")
               if url:
                   url_e = html.escape(url, quote=True)
-                  parts.append(f"• {tag_e} — <b>{title_e}</b>\n  🔗 <a href=\"{url_e}\">Bekijk advisory</a>")
-              else:
-                  parts.append(f"• {tag_e} — <b>{title_e}</b>")
+                  parts.append(f"  🔗 <a href=\"{url_e}\">Bekijk advisory</a>")
           if len(rows) > 20:
               parts.append(f"… en nog {len(rows)-20} meer.")
 
