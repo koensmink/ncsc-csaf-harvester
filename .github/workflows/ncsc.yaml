@@ -56,7 +56,7 @@ jobs:
       - name: Run scraper
         run: python scraper.py
 
-      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt — HTML bericht, geen "Hoog-risico..." of timestamp
+      # Alleen melden wanneer [H/H], [M/H] of [H/M] voorkomt — HTML bericht, titel als klikbare link
       - name: Notify Telegram (HTML, only on [H/H], [M/H], [H/M])
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -153,7 +153,7 @@ jobs:
           if not rows:
               raise SystemExit(0)
 
-          # Bouw HTML-bericht (newline ipv <br>)
+          # Bouw HTML-bericht: titel = klikbare link
           parts = ["🚨🙂 <b>URGENT</b>"]
           if len(rows) > 1:
               parts.append("")
@@ -163,7 +163,7 @@ jobs:
               title_e = html.escape(title)
               if url:
                   url_e = html.escape(url, quote=True)
-                  parts.append(f"• {tag_e} — <b>{title_e}</b>\n  🔗 <a href=\"{url_e}\">Bekijk advisory</a>")
+                  parts.append(f"• {tag_e} — <a href=\"{url_e}\"><b>{title_e}</b></a>")
               else:
                   parts.append(f"• {tag_e} — <b>{title_e}</b>")
           if len(rows) > 20:
