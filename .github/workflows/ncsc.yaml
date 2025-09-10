@@ -63,7 +63,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - <<'PY'
-          import os, json, csv, re, glob, subprocess, html, textwrap
+          import os, json, csv, re, glob, subprocess, html
 
           token = os.getenv("TELEGRAM_BOT_TOKEN","").strip()
           chat  = os.getenv("TELEGRAM_CHAT_ID","").strip()
@@ -71,7 +71,6 @@ jobs:
               raise SystemExit(0)
 
           def send(msg_html: str):
-              # Telegram limiet ~4096 chars per bericht
               if len(msg_html) > 3800:
                   msg_html = msg_html[:3770].rstrip() + "…"
               subprocess.run([
@@ -154,18 +153,17 @@ jobs:
           if not rows:
               raise SystemExit(0)
 
-          # Bouw HTML-bericht
+          # Bouw HTML-bericht (newline ipv <br>)
           parts = ["🚨🙂 <b>URGENT</b>"]
           if len(rows) > 1:
-              parts.append("")  # lege regel
+              parts.append("")
               parts.append("Details:")
-          # Max 20 items om lengte te bewaken
           for tag, title, url in rows[:20]:
               tag_e   = html.escape(tag)
               title_e = html.escape(title)
               if url:
                   url_e = html.escape(url, quote=True)
-                  parts.append(f"• {tag_e} — <b>{title_e}</b><br>  🔗 <a href=\"{url_e}\">Bekijk advisory</a>")
+                  parts.append(f"• {tag_e} — <b>{title_e}</b>\n  🔗 <a href=\"{url_e}\">Bekijk advisory</a>")
               else:
                   parts.append(f"• {tag_e} — <b>{title_e}</b>")
           if len(rows) > 20:
