@@ -1,2 +1,3 @@
 AdvisoryID,Version,Severity,Description,Link
+NCSC-2025-0303,[1.02],[H/H],Kwetsbaarheid verholpen in Oracle E-Business Suite,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0303
 NCSC-2025-0304,[1.00],[M/H],Kwetsbaarheden verholpen in Redis,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0304
