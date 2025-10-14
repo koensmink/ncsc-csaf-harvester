@@ -1,2 +1,4 @@
 AdvisoryID,Version,Severity,Description,Link
 NCSC-2025-0309,[1.00],[M/H],Kwetsbaarheden verholpen in Siemens producten,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0309
+NCSC-2025-0310,[1.00],[M/H],Kwetsbaarheden verholpen in Microsoft Windows,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0310
+NCSC-2025-0311,[1.00],[M/H],Kwetsbaarheden verholpen in Microsoft Azure,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0311
