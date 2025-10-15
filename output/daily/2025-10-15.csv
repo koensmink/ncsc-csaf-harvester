@@ -1,3 +1,4 @@
 AdvisoryID,Version,Severity,Description,Link
 NCSC-2025-0317,[1.00],[M/H],Kwetsbaarheden verholpen in Veeam Backup & Replication,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0317
 NCSC-2025-0318,[1.00],[M/H],Kwetsbaarheden verholpen in Ivanti Endpoint Manager,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0318
+NCSC-2025-0319,[1.00],[M/H],"Kwetsbaarheden verholpen in F5 Networks BIG-IP, F5OS en NGINX App Protect WAF",https://advisories.ncsc.nl/advisory?id=NCSC-2025-0319
