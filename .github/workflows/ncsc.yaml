@@ -4,32 +4,36 @@ on:
   schedule:
     # Doordeweeks (ma-vr) elk uur om xx:00 UTC
     - cron: "0 * * * 1-5"
-    # Weekend-runs die samen 23:55 NL-tijd afdekken (CET/CEST)
+    # Weekend 23:55 Europe/Amsterdam (dek CEST én CET met twee UTC tijden)
     - cron: "55 21 * * 6,0"  # dekkend voor CEST (UTC+2)
-    - cron: "55 22 * * 6,0"  # dekkend voor CET (UTC+1)
+    - cron: "55 22 * * 6,0"  # dekkend voor CET  (UTC+1)
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: ncsc-csaf-harvester
+  group: ncsc-csaf-harvester-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   harvest:
     runs-on: self-hosted
 
+    # Secrets voor alle stappen (incl. scraper.py)
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+
     steps:
+      # Safety: weekend alleen op 23:55 lokale tijd laten lopen
       - name: Weekend 23:55 Europe/Amsterdam gate
         run: |
           DOW=$(TZ=Europe/Amsterdam date +%u)   # 1=ma ... 7=zo
           HM=$(TZ=Europe/Amsterdam date +%H:%M)
-          if [ "$DOW" -ge 6 ]; then
-            if [ "$HM" != "23:55" ]; then
-              echo "Weekend en lokale tijd is $HM, niet 23:55 — job wordt overgeslagen."
-              exit 0
-            fi
+          if [ "$DOW" -ge 6 ] && [ "$HM" != "23:55" ]; then
+            echo "Weekend en lokale tijd is $HM, niet 23:55 — job wordt overgeslagen."
+            exit 0
           fi
 
       - name: Checkout
@@ -49,106 +53,21 @@ jobs:
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           else
-            pip install feedparser
+            pip install requests feedparser
           fi
 
-      - name: Run scraper
+      - name: Run scraper (met dedupe en Telegram)
         run: python scraper.py
 
-      # HTML-bericht: filter op [H/H], [M/H], [H/M]; Description als titel, Link als URL
-      - name: Notify Telegram (HTML, only on [H/H], [M/H], [H/M])
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          python - <<'PY'
-          import os, json, csv, re, glob, subprocess, html, pathlib
-
-          token = os.getenv("TELEGRAM_BOT_TOKEN","").strip()
-          chat  = os.getenv("TELEGRAM_CHAT_ID","").strip()
-          if not token or not chat:
-              raise SystemExit(0)
-
-          def send(msg_html: str):
-              # Telegram limiet ~4096; kleine marge
-              if len(msg_html) > 3800:
-                  msg_html = msg_html[:3770].rstrip() + "…"
-              subprocess.run([
-                  "curl","-sS","-X","POST", f"https://api.telegram.org/bot{token}/sendMessage",
-                  "--data-urlencode", f"chat_id={chat}",
-                  "--data-urlencode", f"text={msg_html}",
-                  "--data-urlencode", "parse_mode=HTML",
-                  "--data-urlencode", "disable_web_page_preview=true"
-              ], check=False)
-
-          # CSV pad bepalen (last_run.json -> csv_path of laatste uit output/daily)
-          data = {}
-          try:
-              with open("output/last_run.json", encoding="utf-8") as f:
-                  data = json.load(f)
-          except Exception:
-              pass
-
-          csv_path = data.get("csv_path", "")
-          if not csv_path or not os.path.exists(csv_path):
-              files = sorted(glob.glob("output/daily/*.csv"), key=os.path.getmtime, reverse=True)
-              csv_path = files[0] if files else ""
-          if not csv_path or not os.path.exists(csv_path):
-              raise SystemExit(0)
-
-          TAG_RE = re.compile(r"\[(H/H|M/H|H/M)\]", re.IGNORECASE)
-
-          rows = []
-          with open(csv_path, encoding="utf-8", newline="") as f:
-              # Robust voor quotes/komma's
-              sample = f.read(4096); f.seek(0)
-              try:
-                  dialect = csv.Sniffer().sniff(sample)
-              except Exception:
-                  dialect = csv.excel
-              reader = csv.DictReader(f, dialect=dialect)
-              if not reader.fieldnames:
-                  raise SystemExit(0)
-
-              for d in reader:
-                  sev = (d.get("Severity") or "").strip()
-                  if not TAG_RE.search(sev or ""):
-                      continue
-                  desc = (d.get("Description") or "").strip()
-                  if not desc:
-                      desc = (d.get("AdvisoryID") or "").strip() or "(zonder titel)"
-                  url  = (d.get("Link") or "").strip()
-                  rows.append((sev, desc, url))
-
-          if not rows:
-              raise SystemExit(0)
-
-          # Bericht opbouwen (titel vet + aparte linkregel)
-          parts = ["🚨🙂 <b>URGENT</b>"]
-          if len(rows) > 1:
-              parts += ["", "Details:"]
-          for sev, desc, url in rows[:20]:
-              sev_e  = html.escape(sev)
-              desc_e = html.escape(desc if len(desc) <= 200 else desc[:199] + "…")
-              parts.append(f"• {sev_e} — <b>{desc_e}</b>")
-              if url:
-                  url_e = html.escape(url, quote=True)
-                  parts.append(f"  🔗 <a href=\"{url_e}\">Bekijk advisory</a>")
-          if len(rows) > 20:
-              parts.append(f"… en nog {len(rows)-20} meer.")
-
-          send("\n".join(parts))
-          PY
-
-      - name: Commit & push outputs
+      - name: Commit & push outputs/state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add output/sent_cache.json output/last_run.json output/daily/*.csv 2>/dev/null || true
           if git diff --staged --quiet; then
             echo "No changes to commit."
-            exit 0
+          else
+            git commit -m "Automated NCSC advisories update"
+            git pull --rebase --autostash
+            git push || true
           fi
-          git commit -m "Automated NCSC advisories update"
-          git pull --rebase --autostash
-          git push
