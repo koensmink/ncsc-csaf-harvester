@@ -21,6 +21,7 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+      debug: "1"
 
     steps:
       - name: Weekend 23:55 Europe/Amsterdam gate
