@@ -63,6 +63,7 @@ def get_base_directory_from_metadata() -> str | None:
         log(f"❌ Kon provider-metadata.json niet ophalen: {e}")
         return None
 
+
 def fetch_ncsc_to_csv(out_csv: Path, batch_limit: int = 60) -> int:
     """Gebruik provider-metadata.json om CSAF-documenten te vinden."""
     base_dir = get_base_directory_from_metadata()
@@ -70,13 +71,16 @@ def fetch_ncsc_to_csv(out_csv: Path, batch_limit: int = 60) -> int:
         log("❌ Geen directory_url in provider metadata gevonden.")
         return 0
 
-    index_url = f"{base_dir}/index.json"
+    # ✅ FIX: gebruik jaar-specifieke index.json
+    year = datetime.date.today().year
+    index_url = f"{base_dir}/{year}/index.json"
+
     try:
         idx = requests.get(index_url, headers={"User-Agent": "NCSC-CSAF-Harvester/1.0"}, timeout=30)
         idx.raise_for_status()
         index_data = idx.json()
     except Exception as e:
-        log(f"❌ Kon index.json niet ophalen: {e}")
+        log(f"❌ Kon index.json niet ophalen ({index_url}): {e}")
         return 0
 
     documents = index_data.get("documents") or []
@@ -84,6 +88,7 @@ def fetch_ncsc_to_csv(out_csv: Path, batch_limit: int = 60) -> int:
         log("⚠️ Geen documenten in index.json gevonden.")
         return 0
 
+    # Sorteer op publicatiedatum en beperk tot laatste N
     documents = sorted(
         documents, key=lambda d: d.get("publication_date", ""), reverse=True
     )[:batch_limit]
@@ -111,7 +116,7 @@ def fetch_ncsc_to_csv(out_csv: Path, batch_limit: int = 60) -> int:
             or ""
         )
 
-        # Bouw de link naar de HTML-advisory (zelfde ID-structuur)
+        # Bouw de link naar de HTML-advisory
         link = ""
         m = re.match(r"(?i)NCSC-(\d{4})-(\d{4})", tid)
         if m:
