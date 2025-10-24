@@ -71,9 +71,8 @@ def fetch_ncsc_to_csv(out_csv: Path, batch_limit: int = 60) -> int:
         log("❌ Geen directory_url in provider metadata gevonden.")
         return 0
 
-    # ✅ FIX: juiste pad bevat /advisories/<jaar>/index.json
-    year = datetime.date.today().year
-    index_url = f"{base_dir}/advisories/{year}/index.json"
+    # ✅ FIX: gebruik root index.json in csaf/v2/
+    index_url = f"{base_dir}/index.json"
 
     try:
         idx = requests.get(index_url, headers={"User-Agent": "NCSC-CSAF-Harvester/1.0"}, timeout=30)
