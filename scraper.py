@@ -47,7 +47,7 @@ def send_to_telegram(text: str) -> Tuple[bool, str]:
         return False, "exception"
 
 # ---------------------------------------------------------------------
-# 1️⃣ CSAF feed ophalen via provider-metadata
+# 1️⃣ CSAF feed ophalen via provider-metadata + directory listing
 # ---------------------------------------------------------------------
 def get_base_directory_from_metadata() -> str | None:
     """Lees provider-metadata.json en retourneer directory_url."""
@@ -65,38 +65,35 @@ def get_base_directory_from_metadata() -> str | None:
 
 
 def fetch_ncsc_to_csv(out_csv: Path, batch_limit: int = 60) -> int:
-    """Gebruik provider-metadata.json om CSAF-documenten te vinden."""
+    """Gebruik de open directorylisting van NCSC om CSAF JSON's te vinden."""
     base_dir = get_base_directory_from_metadata()
     if not base_dir:
         log("❌ Geen directory_url in provider metadata gevonden.")
         return 0
 
-    # ✅ FIX: gebruik root index.json in csaf/v2/
-    index_url = f"{base_dir}/index.json"
+    year = datetime.date.today().year
+    dir_url = f"{base_dir}/{year}/"
+    log(f"🔎 Gebruik directory listing: {dir_url}")
 
     try:
-        idx = requests.get(index_url, headers={"User-Agent": "NCSC-CSAF-Harvester/1.0"}, timeout=30)
-        idx.raise_for_status()
-        index_data = idx.json()
+        r = requests.get(dir_url, headers={"User-Agent": "NCSC-CSAF-Harvester/1.0"}, timeout=30)
+        r.raise_for_status()
     except Exception as e:
-        log(f"❌ Kon index.json niet ophalen ({index_url}): {e}")
+        log(f"❌ Kan directory niet ophalen ({dir_url}): {e}")
         return 0
 
-    documents = index_data.get("documents") or []
-    if not documents:
-        log("⚠️ Geen documenten in index.json gevonden.")
+    # Zoek alle .json-bestanden in de HTML-directory listing
+    files = re.findall(r'href="([^"]+?\.json)"', r.text, flags=re.IGNORECASE)
+    if not files:
+        log("⚠️ Geen .json-bestanden gevonden in directory listing.")
         return 0
 
-    # Sorteer op publicatiedatum en beperk tot laatste N
-    documents = sorted(
-        documents, key=lambda d: d.get("publication_date", ""), reverse=True
-    )[:batch_limit]
+    # Sorteer op nummer, pak de laatste N
+    files = sorted(set(files))[-batch_limit:]
 
     rows: List[Dict[str, str]] = []
-    for d in documents:
-        url = d.get("url") or d.get("document_url")
-        if not url:
-            continue
+    for fn in files:
+        url = f"{dir_url}{fn}"
         try:
             data = requests.get(url, headers={"User-Agent": "NCSC-CSAF-Harvester/1.0"}, timeout=30).json()
         except Exception as e:
@@ -105,13 +102,12 @@ def fetch_ncsc_to_csv(out_csv: Path, batch_limit: int = 60) -> int:
 
         doc = data.get("document") or {}
         tracking = doc.get("tracking") or {}
-        tid = tracking.get("id") or ""
+        tid = tracking.get("id") or fn.replace(".json", "")
         ver = tracking.get("version") or ""
         title = doc.get("title") or "Onbekend"
         sev = (
             doc.get("aggregate_severity")
             or doc.get("severity")
-            or d.get("severity")
             or ""
         )
 
