@@ -57,14 +57,20 @@ def fetch_directory_listing() -> list[str]:
 def normalize_advisory(json_data: dict) -> dict:
     """Extract normalized advisory fields."""
     doc = json_data.get("document", {})
-    meta = doc.get("tracking", {})
+    tracking = doc.get("tracking", {})
+
+    # tracking.generator.engine is een object, geen URL.
+    # Best-effort: als er een canonical/url veld is, gebruik dat; anders leeg.
+    advisory_url = tracking.get("canonical_url") or tracking.get("url") or ""
+    if not isinstance(advisory_url, str):
+        advisory_url = str(advisory_url)
 
     return {
-        "AdvisoryID": meta.get("id", ""),
-        "Version": str(meta.get("version", "")),
+        "AdvisoryID": tracking.get("id", ""),
+        "Version": str(tracking.get("version", "")),
         "Severity": doc.get("category", ""),
-        "Description": meta.get("summary", ""),
-        "AdvisoryURL": meta.get("generator", {}).get("engine", {}),
+        "Description": tracking.get("summary", ""),
+        "AdvisoryURL": advisory_url,
     }
 
 
@@ -85,31 +91,41 @@ def main():
         # URL opbouw (BELANGRIJKE FIX!)
         # -------------------------------
         if href.startswith("http://") or href.startswith("https://"):
-            advisory_url = href
+            advisory_json_url = href
         elif href.startswith("csaf/"):
-            advisory_url = urljoin(BASE_ROOT, href.lstrip("/"))
+            advisory_json_url = urljoin(BASE_ROOT, href.lstrip("/"))
         else:
-            advisory_url = urljoin(BASE_DIR, href)
+            advisory_json_url = urljoin(BASE_DIR, href)
 
         try:
-            r = requests.get(advisory_url, timeout=20)
+            r = requests.get(advisory_json_url, timeout=20)
             if r.status_code != 200:
-                print(f"⚠️ Skip {advisory_url}: {r.status_code}")
+                print(f"⚠️ Skip {advisory_json_url}: {r.status_code}")
                 continue
 
             data = r.json()
             normalized = normalize_advisory(data)
-            normalized["Link"] = advisory_url
+
+            # Link = daadwerkelijke JSON URL die we opgehaald hebben
+            normalized["Link"] = advisory_json_url
+
             rows.append(normalized)
 
         except Exception as e:
-            print(f"⚠️ Error tijdens ophalen {advisory_url}: {e}")
+            print(f"⚠️ Error tijdens ophalen {advisory_json_url}: {e}")
             continue
 
     # ------------------------------------------------------------
     # CSV schrijven
     # ------------------------------------------------------------
-    fieldnames = ["AdvisoryID", "Version", "Severity", "Description", "Link"]
+    fieldnames = [
+        "AdvisoryID",
+        "Version",
+        "Severity",
+        "Description",
+        "AdvisoryURL",
+        "Link",
+    ]
 
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
