@@ -52,14 +52,29 @@ jobs:
             pip install -r requirements.txt
           fi
 
-      - name: Run scraper (met dedupe en Telegram)
-        run: python scraper.py
+      # -------------------------
+      # 🔹 NIEUW — HARVEST SCRIPT
+      # -------------------------
+      - name: Harvest CSAF -> CSV
+        run: python harvest_ncsc.py
 
+      # -------------------------
+      # 🔹 NIEUW — NOTIFY SCRIPT
+      # -------------------------
+      - name: Notify high-risk (Telegram + dedupe)
+        run: python notify_ncsc.py
+
+      # ---------------------------------
+      # 🔹 AANGEPASTE COMMIT-LOGICA
+      # ---------------------------------
       - name: Commit & push outputs/state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add output/sent_cache.json output/last_run.json output/daily/*.csv 2>/dev/null || true
+
+          # Alles onder output meenemen (veiliger & minder fragile)
+          git add output 2>/dev/null || true
+
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
