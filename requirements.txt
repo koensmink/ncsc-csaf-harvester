@@ -1,14 +1,7 @@
-# Core dependencies for NCSC CSAF Harvester
 requests>=2.31.0
 feedparser>=6.0.11
 pandas>=2.2.3
-
-# Optional utilities for CSV/JSON/Date handling
 python-dateutil>=2.9.0
 tqdm>=4.66.4
-
-# Used for cache and file I/O (part of stdlib, kept for readability)
-# json, pathlib, re, hashlib, csv are standard modules
-
-# Developer utilities
 black>=24.8.0
+beautifulsoup4>=4.12.0
