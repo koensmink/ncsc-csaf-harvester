@@ -1,4 +1,7 @@
 AdvisoryID,Version,Severity,Description,AdvisoryURL,Link
+NCSC-2025-0376,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0376.json
+NCSC-2025-0375,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0375.json
+NCSC-2025-0334,1.0.1,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0334.json
 NCSC-2025-0374,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0374.json
 NCSC-2025-0373,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0373.json
 NCSC-2025-0372,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0372.json
@@ -40,7 +43,6 @@ NCSC-2025-0338,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2
 NCSC-2025-0337,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0337.json
 NCSC-2025-0336,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0336.json
 NCSC-2025-0335,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0335.json
-NCSC-2025-0334,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0334.json
 NCSC-2025-0333,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0333.json
 NCSC-2025-0332,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0332.json
 NCSC-2025-0331,1.0.0,csaf_security_advisory,,,https://advisories.ncsc.nl/csaf/v2/2025/ncsc-2025-0331.json
