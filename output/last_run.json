@@ -1,6 +1,5 @@
 {
-  "new_count": 0,
-  "csv_path": "output/daily/2025-11-21.csv",
-  "last_run_at": "2025-11-21T14:05:14.978090+00:00",
-  "todays_count": 0
+  "last_run_at": "2025-11-21T14:45:34.696634",
+  "todays_count": 374,
+  "csv_path": "output/daily/2025-11-21.csv"
 }
