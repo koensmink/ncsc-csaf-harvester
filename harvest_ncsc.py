@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import csv
 import json
 import datetime
@@ -13,7 +12,7 @@ from bs4 import BeautifulSoup
 # ------------------------------------------------------------
 YEAR = datetime.datetime.utcnow().year
 BASE_ROOT = "https://advisories.ncsc.nl/"
-BASE_DIR = f"https://advisories.ncsc.nl/csaf/v2/{YEAR}/"
+BASE_DIR = f"{BASE_ROOT}csaf/v2/{YEAR}/"
 
 OUTPUT_DIR = Path("output/daily")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -54,23 +53,66 @@ def fetch_directory_listing() -> list[str]:
     return json_files
 
 
+def _extract_note_text(notes: list[dict], title: str) -> str:
+    """Find note by title and return its text."""
+    for n in notes or []:
+        if (n.get("title") or "").strip().lower() == title.lower():
+            return (n.get("text") or "").strip().lower()
+    return ""
+
+
+def _severity_from_kans_schade(kans: str, schade: str) -> str:
+    """Map kans/schade to [H/H], [M/H], etc."""
+    map_short = {
+        "low": "L",
+        "medium": "M",
+        "high": "H",
+        "critical": "H",  # NCSC gebruikt meestal low/medium/high; critical -> H
+    }
+    k = map_short.get(kans, "")
+    s = map_short.get(schade, "")
+    if k and s:
+        return f"[{k}/{s}]"
+    return ""
+
+
+def _format_version(v: str) -> str:
+    """
+    Convert tracking.version like '1.0.0' to '[1.00]'.
+    If format is unexpected, just wrap raw.
+    """
+    if not v:
+        return ""
+    parts = v.split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        return f"[{major}.{minor:02d}]"
+    except Exception:
+        return f"[{v}]"
+
+
 def normalize_advisory(json_data: dict) -> dict:
-    """Extract normalized advisory fields."""
+    """Extract normalized advisory fields from CSAF JSON."""
     doc = json_data.get("document", {})
     tracking = doc.get("tracking", {})
+    notes = doc.get("notes", [])
 
-    # tracking.generator.engine is een object, geen URL.
-    # Best-effort: als er een canonical/url veld is, gebruik dat; anders leeg.
-    advisory_url = tracking.get("canonical_url") or tracking.get("url") or ""
-    if not isinstance(advisory_url, str):
-        advisory_url = str(advisory_url)
+    advisory_id = tracking.get("id", "")
+    version_raw = str(tracking.get("version", ""))
+
+    kans = _extract_note_text(notes, "Kans")
+    schade = _extract_note_text(notes, "Schade")
+    severity = _severity_from_kans_schade(kans, schade)
+
+    title = (doc.get("title") or "").strip()
 
     return {
-        "AdvisoryID": tracking.get("id", ""),
-        "Version": str(tracking.get("version", "")),
-        "Severity": doc.get("category", ""),
-        "Description": tracking.get("summary", ""),
-        "AdvisoryURL": advisory_url,
+        "AdvisoryID": advisory_id,
+        "Version": _format_version(version_raw),
+        "Severity": severity,
+        "Description": title,
+        "Link": f"{BASE_ROOT}advisory?id={advisory_id}" if advisory_id else "",
     }
 
 
@@ -87,45 +129,33 @@ def main():
     rows = []
 
     for href in json_files:
-        # -------------------------------
-        # URL opbouw (BELANGRIJKE FIX!)
-        # -------------------------------
+        # URL opbouw
         if href.startswith("http://") or href.startswith("https://"):
-            advisory_json_url = href
+            advisory_url = href
         elif href.startswith("csaf/"):
-            advisory_json_url = urljoin(BASE_ROOT, href.lstrip("/"))
+            advisory_url = urljoin(BASE_ROOT, href.lstrip("/"))
         else:
-            advisory_json_url = urljoin(BASE_DIR, href)
+            advisory_url = urljoin(BASE_DIR, href)
 
         try:
-            r = requests.get(advisory_json_url, timeout=20)
+            r = requests.get(advisory_url, timeout=20)
             if r.status_code != 200:
-                print(f"⚠️ Skip {advisory_json_url}: {r.status_code}")
+                print(f"⚠️ Skip {advisory_url}: {r.status_code}")
                 continue
 
             data = r.json()
             normalized = normalize_advisory(data)
 
-            # Link = daadwerkelijke JSON URL die we opgehaald hebben
-            normalized["Link"] = advisory_json_url
-
-            rows.append(normalized)
+            # Alleen rows met minimaal een ID/titel wegschrijven
+            if normalized["AdvisoryID"] or normalized["Description"]:
+                rows.append(normalized)
 
         except Exception as e:
-            print(f"⚠️ Error tijdens ophalen {advisory_json_url}: {e}")
+            print(f"⚠️ Error tijdens ophalen {advisory_url}: {e}")
             continue
 
-    # ------------------------------------------------------------
     # CSV schrijven
-    # ------------------------------------------------------------
-    fieldnames = [
-        "AdvisoryID",
-        "Version",
-        "Severity",
-        "Description",
-        "AdvisoryURL",
-        "Link",
-    ]
+    fieldnames = ["AdvisoryID", "Version", "Severity", "Description", "Link"]
 
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -133,7 +163,6 @@ def main():
         writer.writerows(rows)
 
     save_last_run(str(out_csv), len(rows))
-
     print(f"✅ {len(rows)} advisories geschreven naar {out_csv}")
     return 0
 
