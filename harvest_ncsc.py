@@ -6,6 +6,8 @@ import requests
 from pathlib import Path
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+from zoneinfo import ZoneInfo
+from dateutil import parser as dtparser  # python-dateutil staat al in requirements
 
 # ------------------------------------------------------------
 # Config
@@ -18,6 +20,8 @@ OUTPUT_DIR = Path("output/daily")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 LAST_RUN_PATH = Path("output/last_run.json")
+
+LOCAL_TZ = ZoneInfo("Europe/Amsterdam")
 
 
 # ------------------------------------------------------------
@@ -67,7 +71,7 @@ def _severity_from_kans_schade(kans: str, schade: str) -> str:
         "low": "L",
         "medium": "M",
         "high": "H",
-        "critical": "H",  # NCSC gebruikt meestal low/medium/high; critical -> H
+        "critical": "H",
     }
     k = map_short.get(kans, "")
     s = map_short.get(schade, "")
@@ -90,6 +94,27 @@ def _format_version(v: str) -> str:
         return f"[{major}.{minor:02d}]"
     except Exception:
         return f"[{v}]"
+
+
+def _get_release_dt(json_data: dict) -> datetime.datetime | None:
+    """
+    Returns current_release_date or initial_release_date as aware datetime.
+    CSAF gebruikt RFC3339/ISO8601; dateutil kan dit robuust parsen.
+    """
+    doc = json_data.get("document", {})
+    tracking = doc.get("tracking", {})
+    date_str = tracking.get("current_release_date") or tracking.get("initial_release_date")
+    if not date_str:
+        return None
+
+    try:
+        dt = dtparser.isoparse(date_str)
+        if dt.tzinfo is None:
+            # als er geen tz in staat, interpreteer als UTC
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt
+    except Exception:
+        return None
 
 
 def normalize_advisory(json_data: dict) -> dict:
@@ -120,13 +145,15 @@ def normalize_advisory(json_data: dict) -> dict:
 # Main harvest logic
 # ------------------------------------------------------------
 def main():
-    today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-    out_csv = OUTPUT_DIR / f"{today}.csv"
+    # "vandaag" in Europe/Amsterdam
+    today_local = datetime.datetime.now(LOCAL_TZ).date()
+    out_csv = OUTPUT_DIR / f"{today_local.isoformat()}.csv"
 
     json_files = fetch_directory_listing()
     print(f"📄 {len(json_files)} JSON-bestanden gevonden.")
 
     rows = []
+    skipped_not_today = 0
 
     for href in json_files:
         # URL opbouw
@@ -144,9 +171,19 @@ def main():
                 continue
 
             data = r.json()
-            normalized = normalize_advisory(data)
 
-            # Alleen rows met minimaal een ID/titel wegschrijven
+            release_dt = _get_release_dt(data)
+            if release_dt is None:
+                # als release-datum ontbreekt: overslaan (of kies hier ander gedrag)
+                skipped_not_today += 1
+                continue
+
+            release_local_date = release_dt.astimezone(LOCAL_TZ).date()
+            if release_local_date != today_local:
+                skipped_not_today += 1
+                continue
+
+            normalized = normalize_advisory(data)
             if normalized["AdvisoryID"] or normalized["Description"]:
                 rows.append(normalized)
 
@@ -163,7 +200,9 @@ def main():
         writer.writerows(rows)
 
     save_last_run(str(out_csv), len(rows))
-    print(f"✅ {len(rows)} advisories geschreven naar {out_csv}")
+
+    print(f"✅ {len(rows)} advisories van vandaag geschreven naar {out_csv}")
+    print(f"ℹ️ Overgeslagen (niet van vandaag / geen datum): {skipped_not_today}")
     return 0
 
 
