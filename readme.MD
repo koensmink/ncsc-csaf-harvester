@@ -1,4 +1,4 @@
-# 🔎 NCSC CSAF Harvester
+# 🔎 NCSC advisory watcher
 
 [![GitHub Workflow Status](https://github.com/koensmink/ncsc-csaf-harvester/actions/workflows/ncsc.yaml/badge.svg)](https://github.com/koensmink/ncsc-csaf-harvester/actions/workflows/ncsc.yaml)
 [![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
