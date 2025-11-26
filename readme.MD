@@ -29,7 +29,7 @@ Standaard worden alleen meldingen verstuurd met verhoogd risico:
 |------|--------|------------|
 | H | H | Ja |
 | M | H | Ja |
-| H | M | Je |
+| H | M | Ja |
 
 ### ✔ Telegram Notificaties
 `notify_ncsc.py` stuurt HTML-geformatteerde meldingen via de Telegram Bot API.
