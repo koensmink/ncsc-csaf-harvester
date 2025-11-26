@@ -1,93 +1,139 @@
-# 🔎 NCSC advisory watcher
+# 🔎 NCSC Advisory Watcher
 
-[![GitHub Workflow Status](https://github.com/koensmink/ncsc-csaf-harvester/actions/workflows/ncsc.yaml/badge.svg)](https://github.com/koensmink/ncsc-csaf-harvester/actions/workflows/ncsc.yaml)
-[![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
-Automatisch ophalen, filteren en melden van **NCSC security advisories** via CSAF en RSS.  
-Dit project helpt bij het tijdig signaleren van kritieke kwetsbaarheden en biedt directe notificaties via **Telegram**.
+Automatisering voor het **ophalen, parseren, dedupliceren en notificeren** van NCSC-advisories.  
+Ondersteunt *dagelijkse harvesting*, *severity-filtering* en real-time **Telegram-meldingen** voor relevante risico’s.
 
 ---
 
-## 🚀 Features
+## 🚀 Functionaliteit
 
-- Haalt advisories op van [advisories.ncsc.nl](https://advisories.ncsc.nl)  
-- Parseert CSAF/RSS en schrijft dagelijkse CSV + JSON outputs weg  
-- **Telegram notificaties** bij kritieke combinaties: `[H/H]`, `[M/H]`, `[H/M]`  
-- Slimme scheduling: doordeweeks elk uur, in het weekend alleen 23:55 (NL-tijd)  
-- GitHub Actions workflow met automatische commit & push  
+### ✔ Harvester (CSAF + HTML)
+`harvest_ncsc.py` haalt advisories op via de officiële CSAF-feed en een HTML-fallback.
+
+- Extractie van ID, titel, datum, kans/schade, classificatie, URL
+- Dagelijkse CSV-output in `output/daily/`
+- Metadata-tracking in `output/last_run.json`
+
+### ✔ Deduplicatie
+`dedupe.py` voorkomt dubbele meldingen via `output/seen.json`.
+
+Een advisory wordt genegeerd wanneer:
+- Het ID al eerder is gezien
+- De datum eerder is verwerkt
+- Het niet binnen de severity-filters valt
+
+### ✔ Severity Filtering
+Standaard worden alleen meldingen verstuurd met verhoogd risico:
+
+| Kans | Schade | Meldingen |
+|------|--------|------------|
+| H | H | Ja |
+| M | H | Ja |
+| H | M | Je |
+
+### ✔ Telegram Notificaties
+`notify_ncsc.py` stuurt HTML-geformatteerde meldingen via de Telegram Bot API.
 
 ---
 
-## 📂 Repository structuur
+## 📁 Bestandsstructuur
 
 ```
-.github/workflows/   → CI/CD workflows (harvester + Telegram alerts)
-output/              → Dagelijkse CSV/JSON resultaten
-scraper.py           → Scraper code
-requirements.txt     → Python dependencies
+.
+├── scraper.py
+├── harvest_ncsc.py
+├── notify_ncsc.py
+├── dedupe.py
+├── output/
+│   ├── daily/
+│   │   └── YYYY-MM-DD.csv
+│   ├── last_run.json
+│   └── seen.json
+├── .github/
+│   └── workflows/
+│       └── ncsc.yaml
+└── readme.md
 ```
 
 ---
 
-## ⚙️ Installatie & gebruik
+## 🛠 Installatie
 
-### Lokaal draaien
+### Vereisten
+- Python **3.11+**
+- Dependencies:
+
 ```bash
-git clone https://github.com/koensmink/ncsc-csaf-harvester.git
-cd ncsc-csaf-harvester
-pip install -r requirements.txt
-python scraper.py
-```
-
-### GitHub Actions
-De workflow (`.github/workflows/ncsc.yml`) draait automatisch volgens het ingestelde schema.  
-Resultaten worden gecommit naar de `output/` map in de repo.
-
----
-
-## 🔔 Telegram notificaties
-
-Stel de volgende **secrets** in bij je GitHub repository settings:
-
-- `TELEGRAM_BOT_TOKEN`  
-- `TELEGRAM_CHAT_ID`  
-
-Berichten zien er bijvoorbeeld zo uit:
-
-```
-🚨🙂 URGENT
-
-Details:
-• [H/H] — Microsoft Exchange kwetsbaarheid
-  🔗 Bekijk advisory
-• [M/H] — Cisco ASA Remote Code Execution
-  🔗 Bekijk advisory
+pip install requests beautifulsoup4 python-dateutil
 ```
 
 ---
 
-## 📊 Output
+## ⚙ Configuratie
 
-Elke run schrijft weg naar:
+### Telegram Secrets
 
-- `output/daily/YYYY-MM-DD.csv`  
-- `output/last_run.json`  
-
-Met daarin metadata over de laatste run en nieuw gedetecteerde advisories.
-
-## 📜 License
-
-Dit project is gelicenseerd onder de [MIT License](LICENSE).
+| Variabele | Beschrijving |
+|-----------|--------------|
+| `TELEGRAM_BOT_TOKEN` | API token van de bot |
+| `TELEGRAM_CHAT_ID` | Doel-chat voor meldingen |
 
 ---
-## 🔐 Security Policy
 
-Als je een kwetsbaarheid in deze code vindt:
+## ▶ Gebruik
 
-1. Meld deze **niet** publiekelijk in een issue  
-2. Neem direct contact op met de maintainer via [GitHub profiel](https://github.com/koensmink)  
-3. Je melding wordt vertrouwelijk behandeld en zo snel mogelijk onderzocht  
+### Harvester + notificaties
+```bash
+python3 scraper.py
+```
+
+### Individuele functies
+```bash
+python3 harvest_ncsc.py
+python3 notify_ncsc.py
+```
 
 ---
-✍️ Maintainer: [Koen Smink](https://github.com/koensmink)
+
+## 🕒 GitHub Actions Workflow
+
+Workflow: `.github/workflows/ncsc.yaml`
+
+- Draait elk uur op werkdagen  
+- Weekend- en avondruns  
+- Self-hosted runner  
+- CSV/JSON output commit  
+- Telegram-meldingen  
+
+---
+
+## 📤 Output
+
+### CSV
+`output/daily/<YYYY-MM-DD>.csv`
+
+### Metadata
+`output/last_run.json`
+
+### Deduplication
+`output/seen.json`
+
+---
+
+## ⚠ Limitaties
+
+- Geen retry-mechanisme  
+- HTML-fallback gevoelig voor NCSC-layout wijzigingen  
+- requirements.txt ontbreekt  
+- Geen tests  
+
+---
+
+## 📄 Licentie
+MIT License.
+
+---
+
+## 👤 Maintainer
+**Koen Smink**  
+https://github.com/koensmink
