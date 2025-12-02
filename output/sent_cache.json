@@ -1,8 +1,9 @@
 {
   "advisory_ids": {
     "NCSC-2025-0377": 1764252734,
-    "NCSC-2025-0378": 1764324826
+    "NCSC-2025-0378": 1764324826,
+    "NCSC-2025-0379": 1764682262
   },
-  "last_message_hash": "b499bc5c168dabf37ab366f4551ce670ab0be5b4bb82f31c59f906b10b7179d6",
+  "last_message_hash": "bf2f9a29684b75c9f59fb29db1a944d7bda45d1133867421c72b7646a1a6d1f9",
   "version": 1
 }
