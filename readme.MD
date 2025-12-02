@@ -1,8 +1,5 @@
 # 🔎 NCSC Advisory Watcher
 
-Automatisering voor het **ophalen, parseren, dedupliceren en notificeren** van NCSC-advisories.  
-Ondersteunt *dagelijkse harvesting*, *severity-filtering* en real-time **Telegram-meldingen** voor relevante risico’s.
-
 ---
 
 ## 🚀 Functionaliteit
@@ -117,15 +114,6 @@ Workflow: `.github/workflows/ncsc.yaml`
 
 ### Deduplication
 `output/seen.json`
-
----
-
-## ⚠ Limitaties
-
-- Geen retry-mechanisme  
-- HTML-fallback gevoelig voor NCSC-layout wijzigingen  
-- requirements.txt ontbreekt  
-- Geen tests  
 
 ---
 
