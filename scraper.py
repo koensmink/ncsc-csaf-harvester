@@ -42,7 +42,7 @@ def send_to_telegram(text: str) -> None:
 
 def build_urgent_message(rows: List[Dict[str, str]]) -> str:
     now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    header = "🚨😡 <b>URGENT</b>\n\nDetails:\n"
+    header = "🚨⚠️ <b>hoge kwetsbaarheid NCSC</b>\n\nDetails:\n"
     lines = []
     for r in rows:
         desc = r.get("Description", "Onbekende melding")
