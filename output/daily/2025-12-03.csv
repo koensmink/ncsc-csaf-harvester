@@ -1,1 +1,2 @@
 AdvisoryID,Version,Severity,Description,Link
+NCSC-2025-0380,[1.00],[H/H],Kwetsbaarheden verholpen in React Server Components,https://advisories.ncsc.nl/advisory?id=NCSC-2025-0380
